@@ -1,0 +1,277 @@
+---
+title: "Census"
+author: "Seulchan Kim"
+date: "7/11/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Library
+
+```{r}
+library(data.table)
+library(dplyr)
+library(questionr)
+library(stringr)
+```
+
+#### Import data
+
+```{r warning=FALSE}
+
+census <- fread("census2018.csv", header = TRUE)    # import full data
+census_star <- census[, 1:25]         # select star(*) variables
+summary(census_star)
+
+```
+
+
+##### This is already cleaned.
+
+```{r}
+# Variables(*): Gender, Age_years, Handed, Height_cm, Footlength_cm, Armspan_cm, Languages_spoken, Travel_to_school, Travel_time_to_school, Reaction_time, Score_in_memory_game, Favourite_physical_activity, Importance_reducing_pollution, Importance_recycling_rubbish, Importance_conserving_water, Importance_saving_energy, Importance_owning_computer, Importance_internet_access
+
+## Gender:
+# Because there is only one invalid response "Dinosaur," we change it to missing value.
+# Empty cells would also be replaced by missing value as NA
+unique(census_star$Gender)
+freq(census_star$Gender)
+census_star[census_star$Gender == "", ]$Gender <- NA           # There are 625 no responses
+census_star[census_star$Gender == "Dinosaur", ]$Gender <- NA   # There is only one "Dinosaur"
+
+
+## Handed 
+# One response is "Question" and would be replaced as NA
+freq(census_star$Handed)
+census_star[census_star$Handed == "Question", ]$Handed <- NA
+census_star[census_star$Handed == "", ]$Handed <- NA
+
+
+## Travel_to_school
+# One valid value ("Dinosaur") and 3885 empty cells ould be replaced with NA 
+freq(census_star$Travel_to_school)
+census_star[census_star$Travel_to_school == "", ]$Travel_to_school <- NA
+census_star[census_star$Travel_to_school == "Dinosaur", ]$Travel_to_school <- NA
+
+```
+
+
+#### Age_years 
+
+```{r, warning=FALSE}
+
+# We consider valid age range according to https://www.sais.edu.sg/admissions/grade-listings/ 
+# https://www.ecs.org/clearinghouse/01/07/04/10704.pdf
+
+summary(census_star$Age_years)     # summary of Age_years
+
+# Create label for Age_years
+# Values < 1 and > 100 (invalid age) would be coded as 2
+# Values < 9 and > 26 (invalid range for grade 4-12) would be coded as 3 
+# Other valid ages would be coded as 1
+
+census_star$Age_lb <- as.numeric(rep(NA, nrow(census_star)))  # create Age_lb variable
+census_star[census_star$Age_years < 1 | census_star$Age_years > 100, ][, "Age_lb"] <- 2
+census_star[(census_star$Age_years >= 1 & census_star$Age_years < 9) | (census_star$Age_years > 26 & census_star$Age_years <= 100), ][, "Age_lb"] <- 3
+census_star[census_star$Age_years >=9 & census_star$Age_years <= 26, ][, "Age_lb"] <- 1
+
+freq(census_star$Age_lb)
+sum(is.na(census_star$Age_years))    # check the number of NA 
+```
+
+
+
+
+
+#### Footlength_cm
+
+
+```{r, warning = FALSE}
+
+# Reference: https://www.sciencedirect.com/science/article/abs/pii/S1752928X07000881
+# Base on the linear model that predicts height from right footlength, gender, age
+# Max footlength is computed by max height(cm), gender(male = 0), max age(years)
+# Min footlength is computed by min height(cm), gender(female = 1), min age(years)
+
+census_star[census_star$Footlength_cm == "", ]$Footlength_cm <- NA  # change empty string to NA
+
+census_star$Footlength_lb <- as.numeric(rep(NA, nrow(census_star)))
+pattern <- " /|''|`|\\!|\\?|\\|~|-|,|\'|\"|cm|ft|[a-z]|\\s|’|” "
+contain_str <- grepl(pattern, census_star$Footlength_cm)
+
+max_footlen <- round((200 - 34.113 - 1.558*0 - 2.499*26)/3.716)  
+min_footlen <- round((100 - 34.113 - 1.558*1 - 2.499*9)/3.716)
+
+
+# The estimated range for footlength is from 11cm to 27cm or (4.3 inches - 10.6 inches)
+# Values that contain characters or space would be coded as 0
+# Values >= 11 and <= 27 (valid cm) would be coded as 1
+# Values >= 4.3 and < 11 (suspect inches) would be coded as 2
+# Values < 4.3 or > 27 (suspect invalid) would be coded as 3
+
+census_star[(!contain_str) & as.double(census_star$Footlength_cm) >= min_footlen & as.double(census_star$Footlength_cm) <= max_footlen, ][, "Footlength_lb"] <- 1
+
+census_star[(!contain_str) & as.double(census_star$Footlength_cm) >= 4.3 & as.double(census_star$Footlength_cm) < min_footlen, ][, "Footlength_lb"] <- 2
+
+census_star[(!contain_str) & (as.double(census_star$Footlength_cm) < 4.3 | as.double(census_star$Footlength_cm) > max_footlen), ][, "Footlength_lb"] <- 3
+
+census_star[contain_str,  ][, "Footlength_lb"] <- 0
+
+
+freq(census_star$Footlength_lb)
+sum(is.na(census_star$Footlength_lb)) # Check the number of NA
+
+```
+
+
+
+#### Languages_spoken
+
+
+```{r, warning = FALSE}
+
+## There are 6500 spoken languages in the world
+## World record is 58
+# Values that contain chracters would be coded as 0
+# Values > 0 and <=58 would be coded as 1 (valid estimate)
+# Values > 58 or < 6500 would be coded as 2  (doubted)
+# Values < 0 or < 6500 would be coded as 3  (invalid)
+
+
+census_star[census_star$Languages_spoken == "", ]$Languages_spoken <- NA  # change empty string to NA
+census_star$Languages_lb <- as.numeric(rep(NA, nrow(census_star)))
+pattern <- "/|''|`|\\!|\\?|\\|~|-|,|\'|\"|cm|ft|[a-z]|\\s|’|” "
+contain_str <- grepl(pattern, census_star$Languages_spoken)
+
+census_star[(!contain_str) & as.double(census_star$Languages_spoken) > 0 & as.double(census_star$Languages_spoken) <= 58, ][, "Languages_lb"] <- 1
+
+census_star[(!contain_str) & (as.double(census_star$Languages_spoken) > 58 & as.double(census_star$Languages_spoken) <= 6500), ][, "Languages_lb"] <- 2
+
+census_star[(!contain_str) & (as.double(census_star$Languages_spoken) <= 0 | as.double(census_star$Languages_spoken) > 6500), ][, "Languages_lb"] <- 3
+
+census_star[contain_str,  ][, "Languages_lb"] <- 0
+
+
+freq(census_star$Languages_lb)
+sum(is.na(census_star$Languages_spoken))
+```
+
+
+#### Travel_time_to_school
+
+```{r, warning = FALSE}
+
+census_star[census_star$Travel_time_to_school == ""|census_star$Travel_time_to_school == "n/a"|census_star$Travel_time_to_school == "5~10", ]$Travel_time_to_school <- NA  # change empty string to NA
+
+census_star$Travel_time_lb <- as.numeric(rep(NA, nrow(census_star)))
+pattern <- " /|''|`|\\!|\\?|\\|~~|-|,|\'|\"|cm|ft|[a-z]|\\s|’|”|:"
+contain_str <- grepl(pattern, census_star$Travel_time_to_school)
+
+
+census_star[(!contain_str) & as.double(census_star$Travel_time_to_school) >= 1 & as.double(census_star$Travel_time_to_school) <= 180, ][, "Travel_time_lb"] <- 1
+
+census_star[(!contain_str) & (as.double(census_star$Travel_time_to_school) < 1 | as.double(census_star$Travel_time_to_school) > 180), ][, "Travel_time_lb"] <- 2
+
+census_star[contain_str,  ][, "Travel_time_lb"] <- 0
+
+
+freq(census_star$Travel_time_lb)
+
+
+```
+
+
+
+#### Reaction_time
+
+```{r, warning = FALSE}
+census_star[census_star$Reaction_time == ""|census_star$Reaction_time == "n/a"|census_star$Reaction_time == "0.3.1", ]$Reaction_time <- NA  # change empty string to NA
+
+census_star$Reaction_time_lb <- as.numeric(rep(NA, nrow(census_star)))
+pattern <- " /|''|`|\\!|\\?|\\|~~|-|,|\'|\"|cm|ft|[a-zA-Z]|\\s|’|”|:"
+contain_str <- grepl(pattern, census_star$Reaction_time)
+
+  
+census_star[(!contain_str) & as.double(census_star$Reaction_time) > 0 & as.double(census_star$Reaction_time) <= 30, ][, "Reaction_time_lb"] <- 1
+
+census_star[(!contain_str) & (as.double(census_star$Reaction_time) <= 0 | as.double(census_star$Reaction_time) > 30), ][, "Reaction_time_lb"] <- 2
+
+census_star[contain_str,  ][, "Reaction_time_lb"] <- 0
+
+
+freq(census_star$Reaction_time_lb)
+
+```
+
+#### Score_in_memory_game
+
+```{r, warning = FALSE}
+census_star[census_star$Score_in_memory_game == ""|census_star$Score_in_memory_game == "n/a", ]$Score_in_memory_game <- NA  # change empty string to NA
+
+census_star$memory_game_lb <- as.numeric(rep(NA, nrow(census_star)))
+pattern <- " /|''|`|\\!|\\?|\\|~~|,|\'|\"|cm|ft|[a-zA-Z]|\\s|’|”|:"
+contain_str <- grepl(pattern, census_star$Score_in_memory_game)
+
+memory_time <- summary(as.numeric(census_star[!contain_str, ]$Score_in_memory_game))
+ub <- memory_time[5] + IQR(as.numeric(census_star[!contain_str, ]$Score_in_memory_game), na.rm = TRUE) * 1.5
+lb <- memory_time[2] - IQR(as.numeric(census_star[!contain_str, ]$Score_in_memory_game), na.rm = TRUE) * 1.5
+
+
+census_star[(!contain_str) & as.double(census_star$Score_in_memory_game) >= lb & as.double(census_star$Score_in_memory_game) <= ub, ][, "memory_game_lb"] <- 1
+
+census_star[(!contain_str) & (as.double(census_star$Score_in_memory_game) < lb | as.double(census_star$Score_in_memory_game) > ub), ][, "memory_game_lb"] <- 2
+
+census_star[contain_str,  ][, "memory_game_lb"] <- 0
+
+
+freq(census_star$memory_game_lb)
+```
+
+
+#### Importance_reducing_pollution, Importance_recycling_rubbish, Importance_conserving_water, Importance_saving_energy, Importance_owning_computer, Importance_internet_access.
+
+```{r, warning=FALSE}
+
+## Based on the survey 
+# Values that contain character would be coded as 0
+# Values >= 0 and <= 1000 would be coded as 1 (valid)
+# Values < 0 or > 1000 would be coded as 2 (invalid) 
+
+for (i in c(19, 21:25)) {
+  census_star$importance_lb <- as.numeric(rep(NA, nrow(census_star)))
+  
+  pattern <- " /|''|`|\\!|\\?|\\|--|,|\'|\"|cm|ft|[a-zA-Z]|\\s|’|”|:"
+  contain_str <- grepl(pattern, census_star[[i]])
+  
+  census_star[census_star[[i]] == "", ][, "importance_lb"] <- NA
+  
+  census_star[(!contain_str) & as.double(census_star[[i]]) >= 0 & as.double(census_star[[i]]) <= 1000, ][, "importance_lb"] <- 1
+  
+  census_star[(!contain_str) & (as.double(census_star[[i]]) < 0 | as.double(census_star[[i]]) > 1000), ][, "importance_lb"] <- 2
+  
+  census_star[contain_str,  ][, "importance_lb"] <- 0
+  
+  colnames(census_star)[ncol(census_star)] <- paste0(colnames(census_star)[i],"_lb")
+  
+}
+
+
+freq(census_star$Importance_reducing_pollution_lb)
+
+freq(census_star$Importance_recycling_rubbish_lb)
+
+freq(census_star$Importance_conserving_water_lb)
+
+freq(census_star$Importance_saving_energy_lb)
+
+freq(census_star$Importance_owning_computer_lb)
+
+freq(census_star$Importance_internet_access_lb)
+
+# View(census_star)   
+```
+
+
