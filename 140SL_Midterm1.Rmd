@@ -5,6 +5,9 @@ date: '2019 11 1 '
 output: html_document
 ---
 
+STATS140SL: Practice of Statistical Consulting Midterm
+Done in 50 minutes.
+
 ```{R, echo=FALSE}
 library(ggplot2)
 library(tidyr)
