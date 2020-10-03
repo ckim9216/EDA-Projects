@@ -1,11 +1,11 @@
 ---
-title: "140SL_Midterm1"
+title: "Statistical Solution"
 author: "Seulchan Kim"
 date: '2019 11 1 '
 output: html_document
 ---
 
-STATS140SL: Practice of Statistical Consulting Midterm
+Statistical Consulting Midterm
 Done in 50 minutes.
 
 ```{R, echo=FALSE}
